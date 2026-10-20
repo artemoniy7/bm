@@ -18,10 +18,16 @@ const Track TRACKS[] = {
 struct Car { float angle=0, lane=0, speed=0, steer=0; Color color=RED; };
 float wrap(float a) { while(a < 0) a += 2*PI; while(a >= 2*PI) a -= 2*PI; return a; }
 Vector3 trackPoint(float a, const Track& t, float lane=0) {
-    return {std::cos(a)*(t.rx+lane), 0.0f, std::sin(a)*(t.rz+lane)};
+    // A stadium circuit: long straight sections connected by rounded ends.
+    const float r = std::max(8.0f, t.rz * 0.72f + lane);
+    const float straightHalf = std::max(5.0f, t.rx - t.rz * 0.72f + lane);
+    const float ca = std::cos(a), sa = std::sin(a);
+    const float x = std::copysign(straightHalf + r * std::abs(ca), ca);
+    const float z = r * sa;
+    return {x, 0.0f, z};
 }
 float trackYaw(float a, const Track& t) {
-    Vector3 p=trackPoint(a,t), q=trackPoint(a+0.01f,t);
+    Vector3 p=trackPoint(a,t), q=trackPoint(a+0.002f,t);
     return std::atan2(q.x-p.x, q.z-p.z)*180.0f/PI;
 }
 void textCentered(const char* s, int y, int size, Color c) {
@@ -76,15 +82,15 @@ void drawWorld(Model cube, const Track& t, float playerAngle, const Car& player,
     // A distant low-poly horizon and broad infield keep the track grounded.
     DrawPlane({0,-0.18f,0},{180,180},t.grass);
     // Long oval circuit, segmented for a smooth curved 3D road.
-    constexpr int N=220;
+    constexpr int N=320;
     for(int i=0;i<N;i++) {
         float a=2*PI*i/N, b=2*PI*(i+1)/N;
         Vector3 p=trackPoint(a,t), q=trackPoint(b,t);
         Vector3 mid={(p.x+q.x)/2,0.05f,(p.z+q.z)/2};
         float len=Vector3Distance(p,q)+0.8f;
         float yaw=std::atan2(q.x-p.x,q.z-p.z)*180/PI;
-        drawBox(cube,{mid.x,-0.02f,mid.z},{18.2f,0.30f,len+0.5f},yaw,{185,65,66,255});
-        drawBox(cube,mid,{17.0f,0.35f,len},yaw,t.road);
+        drawBox(cube,{mid.x,-0.02f,mid.z},{19.8f,0.30f,len+0.7f},yaw,{185,65,66,255});
+        drawBox(cube,mid,{18.2f,0.35f,len},yaw,t.road);
         drawBox(cube,{mid.x,0.245f,mid.z},{0.16f,0.025f,len*0.82f},yaw,{225,225,205,255});
         if(i%4==0) {
             Vector3 curbL=trackPoint(a,t,-7.9f), curbR=trackPoint(a,t,7.9f);
@@ -154,24 +160,35 @@ int main() {
             }
         } else if(screen==Screen::Racing) {
             if(IsKeyPressed(KEY_ESCAPE)) screen=Screen::Paused;
-            float throttle=(IsKeyDown(KEY_W)||IsKeyDown(KEY_UP))?1.0f:0.0f;
-            float brake=(IsKeyDown(KEY_S)||IsKeyDown(KEY_DOWN))?1.0f:0.0f;
-            float steering=(IsKeyDown(KEY_A)||IsKeyDown(KEY_LEFT))?-1.0f:((IsKeyDown(KEY_D)||IsKeyDown(KEY_RIGHT))?1.0f:0.0f);
+            // WASD is consistent: W accelerates, S reverses/brakes, A/D steer left/right.
+            float throttle=IsKeyDown(KEY_W)?1.0f:0.0f;
+            float brake=IsKeyDown(KEY_S)?1.0f:0.0f;
+            float steering=(IsKeyDown(KEY_A)?-1.0f:0.0f)+(IsKeyDown(KEY_D)?1.0f:0.0f);
             bool handbrake=IsKeyDown(KEY_SPACE);
             // Arcade vehicle dynamics: acceleration, drag, braking, grip and speed-sensitive steering.
             player.speed+=throttle*29.0f*dt;
-            player.speed-=brake*(player.speed>0?48.0f:20.0f)*dt;
+            if(brake>0.0f) {
+                if(player.speed>0.8f) player.speed-=48.0f*dt;
+                else player.speed-=20.0f*dt;
+            }
             player.speed-=player.speed*(handbrake?0.92f:0.11f)*dt;
-            player.speed=Clamp(player.speed,-8.0f,58.0f);
+            player.speed=Clamp(player.speed,-14.0f,64.0f);
             player.steer=Lerp(player.steer,steering,Clamp(dt*(handbrake?4.0f:8.5f),0,1));
-            const float speed01=Clamp(std::abs(player.speed)/58.0f,0.0f,1.0f);
+            const float speed01=Clamp(std::abs(player.speed)/64.0f,0.0f,1.0f);
             const float grip=handbrake?0.42f:1.0f;
             // Steering changes heading as well as line; lateral grip naturally fades in a handbrake slide.
             player.angle=wrap(player.angle + player.steer*player.speed*dt/std::sqrt(track.rx*track.rz)*0.82f*grip);
-            player.lane+=player.steer*(handbrake?9.0f:2.0f)*speed01*dt;
-            player.lane=Clamp(player.lane,-7.0f,7.0f);
+            player.lane+=player.steer*(handbrake?12.0f:3.6f)*speed01*dt;
+            // The car is not rail-locked: leaving the asphalt is possible but costs grip and speed.
+            const float roadEdge=9.0f;
+            const float offroad=std::max(0.0f,std::abs(player.lane)-roadEdge);
+            if(offroad>0.0f) {
+                player.speed*=std::max(0.0f,1.0f-0.85f*dt);
+                player.steer=Lerp(player.steer,0.0f,dt*0.45f);
+            }
             float radius=std::sqrt(track.rx*track.rz);
             float old=player.angle;
+            // Reverse travel follows the path backwards; no invisible lane snapping.
             player.angle=wrap(player.angle+player.speed/radius*dt*0.55f);
             if(old>5.4f&&player.angle<0.8f&&player.speed>3.0f){laps++;if(laps>0){float lap=raceTime-lapStart;if(lapStart>0&&(bestTime==0||lap<bestTime))bestTime=lap;lapStart=raceTime;}if(laps>=3)screen=Screen::Results;}
             raceTime+=dt;
@@ -183,7 +200,26 @@ int main() {
             // Soft collision response when cars occupy nearby track positions.
             for(auto& ai:rivals) {
                 float da=std::abs(std::remainder(player.angle-ai.angle,2*PI));
-                if(da<0.045f&&std::abs(player.lane-ai.lane)<2.6f) player.speed=std::max(0.0f,player.speed-18.0f*dt);
+                if(da<0.055f&&std::abs(player.lane-ai.lane)<2.8f) {
+                    // Contact slows both cars and pushes them apart laterally.
+                    player.speed*=0.72f;
+                    ai.speed*=0.86f;
+                    float side=player.lane<=ai.lane?-1.0f:1.0f;
+                    player.lane+=side*1.8f;
+                    ai.lane-=side*0.9f;
+                }
+            }
+            // Solid scenery collision: tree trunks and trackside posts are obstacles.
+            for(int i=0;i<90;i++) {
+                float a=2*PI*i/90.0f;
+                float side=(i%2==0)?1.0f:-1.0f;
+                float d=13.0f+(i%5)*2.8f;
+                Vector3 obstacle=trackPoint(a,track,side*d);
+                Vector3 pp=trackPoint(player.angle,track,player.lane);
+                if(Vector3Distance({pp.x,0,pp.z},obstacle)<2.2f) {
+                    player.speed*=0.45f;
+                    player.lane+=player.lane>=0.0f?-1.4f:1.4f;
+                }
             }
         } else if(screen==Screen::Paused) {
             if(IsKeyPressed(KEY_ESCAPE)||IsKeyPressed(KEY_ENTER)) screen=Screen::Racing;
@@ -224,7 +260,7 @@ int main() {
             DrawText("CURRENT CIRCUIT",818,452,16,{135,159,185,255});
             DrawText(track.name,818,480,27,RAYWHITE);
             DrawText("A / D  CHANGE TRACK",818,523,16,track.accent);
-            DrawText("WASD / ARROWS  NAVIGATE",818,552,15,{150,169,193,255});
+            DrawText("WASD  DRIVE",818,552,15,{150,169,193,255});
             DrawText("ENTER  CONFIRM",818,576,15,{150,169,193,255});
             DrawText("A R C A D E   R A C I N G",84,660,14,{89,112,140,255});
         } else {
@@ -240,7 +276,7 @@ int main() {
             panel(SW-280,25,250,105);DrawText(track.name,SW-258,43,18,RAYWHITE);
             DrawText(TextFormat("LAP  %d / 3",std::min(laps+1,3)),SW-258,70,22,track.accent);
             DrawText(TextFormat("TIME  %02d:%05.2f",(int)(raceTime/60),std::fmod(raceTime,60.0)),SW-258,98,16,RAYWHITE);
-            DrawText("WASD DRIVE   SPACE DRIFT   ESC PAUSE",SW/2-205,SH-33,15,RAYWHITE);
+            DrawText("W ACCELERATE  S BRAKE/REVERSE  A/D STEER  SPACE HANDBRAKE  ESC PAUSE",SW/2-300,SH-33,14,RAYWHITE);
             if(screen==Screen::Paused) {
                 DrawRectangle(0,0,SW,SH,{4,7,15,190});panel(SW/2-220,SH/2-130,440,260);
                 textCentered("RACE PAUSED",SH/2-88,36,RAYWHITE);

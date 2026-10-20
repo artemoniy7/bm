@@ -201,35 +201,6 @@ int main() {
             if(track.dragStrip && player.pos.z>=140.0f && player.speed>3.0f) screen=Screen::Results;
             previousZ=player.pos.z;
             raceTime+=dt;
-            for(auto& ai:rivals) {
-                float target=25.0f+(std::sin(ai.angle*3.0f)*3.0f);
-                ai.speed=Lerp(ai.speed,target,dt*0.65f);
-                ai.angle=wrap(ai.angle+ai.speed/radius*dt*0.55f);
-            }
-            // Soft collision response when cars occupy nearby track positions.
-            for(auto& ai:rivals) {
-                float da=std::abs(std::remainder(player.angle-ai.angle,2*PI));
-                if(da<0.055f&&std::abs(player.lane-ai.lane)<2.8f) {
-                    // Contact slows both cars and pushes them apart laterally.
-                    player.speed*=0.72f;
-                    ai.speed*=0.86f;
-                    float side=player.lane<=ai.lane?-1.0f:1.0f;
-                    player.lane+=side*1.8f;
-                    ai.lane-=side*0.9f;
-                }
-            }
-            // Solid scenery collision: tree trunks and trackside posts are obstacles.
-            for(int i=0;i<90;i++) {
-                float a=2*PI*i/90.0f;
-                float side=(i%2==0)?1.0f:-1.0f;
-                float d=13.0f+(i%5)*2.8f;
-                Vector3 obstacle=trackPoint(a,track,side*d);
-                Vector3 pp=trackPoint(player.angle,track,player.lane);
-                if(Vector3Distance({pp.x,0,pp.z},obstacle)<2.2f) {
-                    player.speed*=0.45f;
-                    player.lane+=player.lane>=0.0f?-1.4f:1.4f;
-                }
-            }
         } else if(screen==Screen::Paused) {
             if(IsKeyPressed(KEY_ESCAPE)||IsKeyPressed(KEY_ENTER)) screen=Screen::Racing;
             if(IsKeyPressed(KEY_M)) screen=Screen::Menu;

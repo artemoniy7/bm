@@ -1,30 +1,34 @@
-# Apex Rush — C++ 3D Racing
+# FLEX DRIVE — C++ Vehicle Physics Sandbox
 
-A C++17 3D arcade racing prototype built with raylib, featuring upgraded procedural sports-car models, a long-straight stadium-style circuit layout, speed-sensitive WASD steering, off-road handling, vehicle contact response, scenery collisions, and a handbrake drift mode. It features a main menu, three tracks, procedural 3D cars and scenery, arcade driving physics, AI opponents, checkpoints, lap timing, and a pause menu.
+A clean-slate 3D driving and crash-test prototype in C++17 + raylib.
+
+## Features
+- Main menu, pause menu, and resettable test session.
+- Detailed procedural road-car model: body panels, glass, wheels, rims, lights, and visible chassis frame.
+- Spring-based deformable chassis using Verlet integration and iterative distance constraints.
+- Collision response, crumple-zone spring weakening, structural damage indicator, vehicle condition bar, and flying debris.
+- Test pad with barriers, concrete blocks, ramps, pylons, and open driving space.
+- Follow camera, speed readout, driving controls, and togglable help overlay.
+
+> This is an original prototype inspired by vehicle-physics sandbox games, not a full BeamNG.drive-equivalent soft-body solver. Cars are procedural placeholder models, not licensed real-world vehicle meshes. Damage simulation is an initial spring-frame approximation.
 
 ## Build
-
-Requirements: CMake 3.16+, a C++17 compiler, and internet access on the first configure (CMake downloads raylib).
+Requires CMake 3.20+, a C++17 compiler, and internet access on first configure to fetch raylib.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
-./build/apex_rush
+./build/flex_drive
 ```
 
-On Windows, run `build\\Release\\apex_rush.exe` if using a multi-configuration generator.
+Windows multi-configuration builds usually place the executable at `build/Release/flex_drive.exe`.
 
 ## Controls
-
-- **W** — accelerate
-- **S** — brake, then reverse
-- **A / D** — steer left / right
-- **Space** — handbrake / drift
-- **Esc** — pause / back to menu
-- **Enter** — confirm menu selection
-
-Tracks: Coastal Run, Alpine Pass, and Neon Circuit. Models and track scenery are procedurally built from 3D primitives, so no external assets are required.
-
-## Notes
-
-Driving uses an arcade model with acceleration, braking, drag, speed-sensitive steering, free lateral movement (the car can leave the road), off-road speed/grip penalties, car-to-car contact response, obstacle collisions, and handbrake grip changes. Cars are assembled procedurally from 3D primitives, with no external assets required. This is still a prototype, not a full tire/suspension simulation. Raylib is fetched automatically by CMake.
+- W / Up: accelerate
+- S / Down: brake / reverse
+- A / D or Left / Right: steer
+- R: reset car
+- Tab: toggle driving help
+- Esc: pause/resume
+- Enter: start / resume
+- M: return to main menu (paused)

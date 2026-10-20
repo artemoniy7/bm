@@ -9,13 +9,13 @@ namespace {
 constexpr int SW = 1280, SH = 720;
 constexpr float PI = 3.14159265358979323846f;
 enum class Screen { Menu, Racing, Paused, Results };
-struct Track { const char* name; float rx, rz; Color grass, road, accent; };
+struct Track { const char* name; float rx, rz; Color grass, road, accent; bool dragStrip=false; };
 const Track TRACKS[] = {
-    {"COASTAL RUN", 54.0f, 38.0f, {45, 112, 78, 255}, {53, 58, 68, 255}, SKYBLUE},
-    {"ALPINE PASS", 66.0f, 31.0f, {99, 119, 91, 255}, {65, 66, 70, 255}, GOLD},
-    {"NEON CIRCUIT", 47.0f, 45.0f, {26, 39, 61, 255}, {35, 39, 53, 255}, MAGENTA}
+    {"COASTAL RUN", 54.0f, 38.0f, {45, 112, 78, 255}, {53, 58, 68, 255}, SKYBLUE, false},
+    {"ALPINE PASS", 66.0f, 31.0f, {99, 119, 91, 255}, {65, 66, 70, 255}, GOLD, false},
+    {"DRAG STRIP", 47.0f, 45.0f, {26, 39, 61, 255}, {35, 39, 53, 255}, MAGENTA, true}
 };
-struct Car { float angle=0, lane=0, speed=0, steer=0; Color color=RED; };
+struct Car { Vector3 pos={0,0,0}; float heading=0, speed=0, steer=0, lateral=0; Color color=RED; };
 float wrap(float a) { while(a < 0) a += 2*PI; while(a >= 2*PI) a -= 2*PI; return a; }
 Vector3 trackPoint(float a, const Track& t, float lane=0) {
     // A stadium circuit: long straight sections connected by rounded ends.
@@ -36,91 +36,62 @@ void textCentered(const char* s, int y, int size, Color c) {
 void drawBox(Model cube, Vector3 pos, Vector3 scale, float yaw, Color color) {
     DrawModelEx(cube, pos, {0,1,0}, yaw, scale, color);
 }
-void drawCar(Model cube, const Car& car, const Track& track, bool player, float bob=0) {
-    Vector3 p=trackPoint(car.angle,track,car.lane);
-    p.y=0.78f+bob;
-    const float yaw=trackYaw(car.angle,track);
-    const float rad=yaw*PI/180.0f;
+void drawCar(Model cube, const Car& car, bool player, float bob=0) {
+    Vector3 p=car.pos; p.y=0.78f+bob;
+    const float yaw=car.heading*180.0f/PI, rad=car.heading;
     auto part=[&](Vector3 offset, Vector3 size, Color color) {
-        Vector3 pos={p.x+std::sin(rad)*offset.z+std::cos(rad)*offset.x,
-                     p.y+offset.y,
-                     p.z+std::cos(rad)*offset.z-std::sin(rad)*offset.x};
+        Vector3 pos={p.x+std::sin(rad)*offset.z+std::cos(rad)*offset.x,p.y+offset.y,p.z+std::cos(rad)*offset.z-std::sin(rad)*offset.x};
         drawBox(cube,pos,size,yaw,color);
     };
-    Color body=car.color;
-    Color glass=player?Color{80,190,220,255}:Color{85,110,135,255};
-    Color dark={22,27,35,255};
-    // Layered low-poly sports-car silhouette: chassis, sculpted bonnet, cabin, skirts and aero.
-    part({0,0,0},{2.05f,0.55f,3.8f},body);
-    part({0,0.25f,0.82f},{1.9f,0.35f,1.45f},body);
-    part({0,0.52f,-0.30f},{1.48f,0.58f,1.72f},dark);
-    part({0,0.68f,-0.20f},{1.30f,0.48f,1.43f},glass);
-    part({0,0.28f,-1.62f},{1.72f,0.18f,0.38f},body);
-    part({0,-0.12f,0},{2.12f,0.20f,3.1f},dark);
-    part({0,0.03f,1.88f},{1.72f,0.12f,0.16f},Color{215,220,225,255});
-    part({0,0.32f,-1.92f},{1.9f,0.12f,0.16f},body);
-    // Mirrors and bright LED headlamps.
+    Color body=car.color, glass=player?Color{80,190,220,255}:Color{85,110,135,255}, dark={22,27,35,255};
+    part({0,0,0},{2.05f,0.55f,3.8f},body); part({0,0.25f,0.82f},{1.9f,0.35f,1.45f},body);
+    part({0,0.52f,-0.30f},{1.48f,0.58f,1.72f},dark); part({0,0.68f,-0.20f},{1.30f,0.48f,1.43f},glass);
+    part({0,0.28f,-1.62f},{1.72f,0.18f,0.38f},body); part({0,-0.12f,0},{2.12f,0.20f,3.1f},dark);
+    part({0,0.03f,1.88f},{1.72f,0.12f,0.16f},Color{215,220,225,255}); part({0,0.32f,-1.92f},{1.9f,0.12f,0.16f},body);
     for(float side : {-1.0f,1.0f}) {
         part({side*1.04f,0.28f,0.28f},{0.24f,0.15f,0.42f},body);
         part({side*0.69f,0.27f,1.91f},{0.38f,0.13f,0.12f},Color{255,244,185,255});
         part({side*0.69f,0.20f,-1.94f},{0.38f,0.16f,0.12f},Color{255,35,42,255});
-        // Four chunky low-poly tires with inset hubs.
-        for(float z : {-1.22f,1.20f}) {
-            part({side*1.00f,-0.26f,z},{0.43f,0.55f,0.78f},Color{14,17,22,255});
-            part({side*1.225f,-0.25f,z},{0.07f,0.30f,0.34f},Color{165,177,190,255});
-            part({side*1.27f,-0.25f,z},{0.035f,0.12f,0.15f},Color{45,52,62,255});
-        }
+        for(float z : {-1.22f,1.20f}) { part({side*1.00f,-0.26f,z},{0.43f,0.55f,0.78f},Color{14,17,22,255}); part({side*1.225f,-0.25f,z},{0.07f,0.30f,0.34f},Color{165,177,190,255}); }
     }
-    // Rear wing and racing stripe.
-    part({0,0.57f,-1.66f},{1.82f,0.12f,0.18f},dark);
-    part({0,0.72f,-1.66f},{1.92f,0.10f,0.28f},player?Color{245,245,245,255}:body);
+    part({0,0.57f,-1.66f},{1.82f,0.12f,0.18f},dark); part({0,0.72f,-1.66f},{1.92f,0.10f,0.28f},player?Color{245,245,245,255}:body);
     part({0,0.285f,0.65f},{0.18f,0.035f,1.65f},player?Color{245,245,245,255}:body);
 }
-void drawWorld(Model cube, const Track& t, float playerAngle, const Car& player, const std::vector<Car>& rivals) {
-    ClearBackground({126,184,220,255});
-    DrawPlane({0,-0.35f,0},{700,700},t.grass);
-    // A distant low-poly horizon and broad infield keep the track grounded.
-    DrawPlane({0,-0.18f,0},{180,180},t.grass);
-    // Long oval circuit, segmented for a smooth curved 3D road.
-    constexpr int N=320;
-    for(int i=0;i<N;i++) {
-        float a=2*PI*i/N, b=2*PI*(i+1)/N;
-        Vector3 p=trackPoint(a,t), q=trackPoint(b,t);
-        Vector3 mid={(p.x+q.x)/2,0.05f,(p.z+q.z)/2};
-        float len=Vector3Distance(p,q)+0.8f;
-        float yaw=std::atan2(q.x-p.x,q.z-p.z)*180/PI;
-        drawBox(cube,{mid.x,-0.02f,mid.z},{19.8f,0.30f,len+0.7f},yaw,{185,65,66,255});
-        drawBox(cube,mid,{18.2f,0.35f,len},yaw,t.road);
-        drawBox(cube,{mid.x,0.245f,mid.z},{0.16f,0.025f,len*0.82f},yaw,{225,225,205,255});
-        if(i%4==0) {
-            Vector3 curbL=trackPoint(a,t,-7.9f), curbR=trackPoint(a,t,7.9f);
-            drawBox(cube,{curbL.x,0.28f,curbL.z},{0.8f,0.12f,len*0.65f},yaw,(i%8==0)?RAYWHITE:RED);
-            drawBox(cube,{curbR.x,0.28f,curbR.z},{0.8f,0.12f,len*0.65f},yaw,(i%8==0)?RAYWHITE:RED);
+bool onRoad(Vector3 p, const Track& t) {
+    if(t.dragStrip) return std::abs(p.x)<10.5f && std::abs(p.z)<155.0f;
+    float r=t.rz*0.72f, straight=std::max(5.0f,t.rx-r), cx=Clamp(p.x,-straight,straight), dx=p.x-cx;
+    float d2=dx*dx+p.z*p.z;
+    return d2<=(r+10.0f)*(r+10.0f) && d2>=std::max(0.0f,r-10.0f)*std::max(0.0f,r-10.0f);
+}
+void drawWorld(Model cube, const Track& t, const Car& player, const std::vector<Car>& rivals) {
+    ClearBackground({126,184,220,255}); DrawPlane({0,-0.35f,0},{700,700},t.grass);
+    if(t.dragStrip) {
+        drawBox(cube,{0,-0.02f,0},{23.0f,0.30f,330.0f},0,{185,65,66,255});
+        drawBox(cube,{0,0.10f,0},{20.0f,0.35f,326.0f},0,t.road);
+        for(int z=-150;z<=150;z+=10) for(float x : {-9.6f,9.6f}) drawBox(cube,{x,0.30f,(float)z},{0.45f,0.08f,5.0f},0,(z/10)%2?RED:RAYWHITE);
+        for(int z=-150;z<=150;z+=15) drawBox(cube,{0,0.30f,(float)z},{0.16f,0.04f,6.0f},0,{235,225,190,255});
+        drawBox(cube,{0,0.32f,140},{19.0f,0.05f,1.3f},0,RAYWHITE);
+    } else {
+        constexpr int N=320;
+        for(int i=0;i<N;i++) {
+            float a=2*PI*i/N,b=2*PI*(i+1)/N; Vector3 p=trackPoint(a,t),q=trackPoint(b,t);
+            Vector3 mid={(p.x+q.x)/2,0.05f,(p.z+q.z)/2}; float len=Vector3Distance(p,q)+0.8f;
+            float yaw=std::atan2(q.x-p.x,q.z-p.z)*180/PI;
+            drawBox(cube,{mid.x,-0.02f,mid.z},{19.8f,0.30f,len+0.7f},yaw,{185,65,66,255});
+            drawBox(cube,mid,{18.2f,0.35f,len},yaw,t.road);
+            drawBox(cube,{mid.x,0.245f,mid.z},{0.16f,0.025f,len*0.82f},yaw,{225,225,205,255});
+            if(i%4==0) for(float side : {-1.0f,1.0f}) { Vector3 curb=trackPoint(a,t,side*7.9f); drawBox(cube,{curb.x,0.28f,curb.z},{0.8f,0.12f,len*0.65f},yaw,(i%8==0)?RAYWHITE:RED); }
         }
-        if(i%3==0) {
-            Vector3 l=trackPoint(a,t,-8.1f), r=trackPoint(a,t,8.1f);
-            drawBox(cube,{l.x,0.3f,l.z},{0.35f,0.06f,1.1f},yaw,(i%6==0)?RED:RAYWHITE);
-            drawBox(cube,{r.x,0.3f,r.z},{0.35f,0.06f,1.1f},yaw,(i%6==0)?RED:RAYWHITE);
-        }
+        Vector3 st=trackPoint(0,t); drawBox(cube,{st.x,0.29f,st.z},{16.0f,0.05f,1.3f},90,RAYWHITE);
     }
-    // Start/finish stripe.
-    Vector3 s=trackPoint(0,t);
-    drawBox(cube,{s.x,0.29f,s.z},{16.0f,0.05f,1.3f},90,{235,235,235,255});
-    // Procedural scenery: trees / rocks placed outside the track.
     for(int i=0;i<90;i++) {
-        float a=2*PI*i/90.0f;
-        float side=(i%2==0)?1.0f:-1.0f;
-        float d=13.0f+(i%5)*2.8f;
-        Vector3 p=trackPoint(a,t,side*d);
-        if(t.name==std::string("NEON CIRCUIT")) {
-            drawBox(cube,{p.x,1.5f,p.z},{1.0f,3.0f,1.0f},i*17.0f,t.accent);
-        } else {
-            drawBox(cube,{p.x,1.25f,p.z},{0.8f,2.5f,0.8f},i*23.0f,{105,73,45,255});
-            drawBox(cube,{p.x,3.0f,p.z},{3.0f,3.2f,3.0f},0,(i%3==0)?Color{42,105,55,255}:Color{37,125,63,255});
-        }
+        float a=2*PI*i/90.0f,side=(i%2==0)?1.0f:-1.0f,d=13.0f+(i%5)*2.8f;
+        Vector3 p=t.dragStrip?Vector3{side*(14.0f+(i%5)*2.8f),0,(float)((i*37)%300-150)}:trackPoint(a,t,side*d);
+        if(t.dragStrip) drawBox(cube,{p.x,1.5f,p.z},{1.0f,3.0f,1.0f},i*17.0f,t.accent);
+        else { drawBox(cube,{p.x,1.25f,p.z},{0.8f,2.5f,0.8f},i*23.0f,{105,73,45,255}); drawBox(cube,{p.x,3.0f,p.z},{3.0f,3.2f,3.0f},0,(i%3==0)?Color{42,105,55,255}:Color{37,125,63,255}); }
     }
-    for(const auto& rival:rivals) drawCar(cube,rival,t,false);
-    drawCar(cube,player,t,true);
+    for(const auto& rival:rivals) drawCar(cube,rival,false);
+    drawCar(cube,player,true);
 }
 void panel(int x,int y,int w,int h,Color c={8,12,22,220}) {
     DrawRectangle(x,y,w,h,c); DrawRectangleLines(x,y,w,h,{255,255,255,35});

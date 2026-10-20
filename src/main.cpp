@@ -32,20 +32,49 @@ void drawBox(Model cube, Vector3 pos, Vector3 scale, float yaw, Color color) {
 }
 void drawCar(Model cube, const Car& car, const Track& track, bool player, float bob=0) {
     Vector3 p=trackPoint(car.angle,track,car.lane);
-    p.y=0.8f+bob;
-    float yaw=trackYaw(car.angle,track);
-    drawBox(cube,{p.x,p.y,p.z},{2.0f,0.75f,3.5f},yaw,car.color);
-    Vector3 hood={p.x+std::sin(yaw*PI/180)*0.65f,p.y+0.45f,p.z+std::cos(yaw*PI/180)*0.65f};
-    drawBox(cube,hood,{1.45f,0.45f,1.45f},yaw,player?Color{205,235,255,255}:Color{180,195,210,255});
-    // Headlights and tail lamps add readable car detail.
-    Vector3 front={p.x+std::sin(yaw*PI/180)*1.65f,p.y+0.05f,p.z+std::cos(yaw*PI/180)*1.65f};
-    drawBox(cube,{front.x-0.55f,front.y,front.z+0.05f},{0.28f,0.16f,0.12f},yaw,YELLOW);
-    drawBox(cube,{front.x+0.55f,front.y,front.z+0.05f},{0.28f,0.16f,0.12f},yaw,YELLOW);
-    Vector3 rear={p.x-std::sin(yaw*PI/180)*1.75f,p.y+0.04f,p.z-std::cos(yaw*PI/180)*1.75f};
-    drawBox(cube,rear,{1.25f,0.17f,0.13f},yaw,RED);
+    p.y=0.78f+bob;
+    const float yaw=trackYaw(car.angle,track);
+    const float rad=yaw*PI/180.0f;
+    auto part=[&](Vector3 offset, Vector3 size, Color color) {
+        Vector3 pos={p.x+std::sin(rad)*offset.z+std::cos(rad)*offset.x,
+                     p.y+offset.y,
+                     p.z+std::cos(rad)*offset.z-std::sin(rad)*offset.x};
+        drawBox(cube,pos,size,yaw,color);
+    };
+    Color body=car.color;
+    Color glass=player?Color{80,190,220,255}:Color{85,110,135,255};
+    Color dark={22,27,35,255};
+    // Layered low-poly sports-car silhouette: chassis, sculpted bonnet, cabin, skirts and aero.
+    part({0,0,0},{2.05f,0.55f,3.8f},body);
+    part({0,0.25f,0.82f},{1.9f,0.35f,1.45f},body);
+    part({0,0.52f,-0.30f},{1.48f,0.58f,1.72f},dark);
+    part({0,0.68f,-0.20f},{1.30f,0.48f,1.43f},glass);
+    part({0,0.28f,-1.62f},{1.72f,0.18f,0.38f},body);
+    part({0,-0.12f,0},{2.12f,0.20f,3.1f},dark);
+    part({0,0.03f,1.88f},{1.72f,0.12f,0.16f},Color{215,220,225,255});
+    part({0,0.32f,-1.92f},{1.9f,0.12f,0.16f},body);
+    // Mirrors and bright LED headlamps.
+    for(float side : {-1.0f,1.0f}) {
+        part({side*1.04f,0.28f,0.28f},{0.24f,0.15f,0.42f},body);
+        part({side*0.69f,0.27f,1.91f},{0.38f,0.13f,0.12f},Color{255,244,185,255});
+        part({side*0.69f,0.20f,-1.94f},{0.38f,0.16f,0.12f},Color{255,35,42,255});
+        // Four chunky low-poly tires with inset hubs.
+        for(float z : {-1.22f,1.20f}) {
+            part({side*1.00f,-0.26f,z},{0.43f,0.55f,0.78f},Color{14,17,22,255});
+            part({side*1.225f,-0.25f,z},{0.07f,0.30f,0.34f},Color{165,177,190,255});
+            part({side*1.27f,-0.25f,z},{0.035f,0.12f,0.15f},Color{45,52,62,255});
+        }
+    }
+    // Rear wing and racing stripe.
+    part({0,0.57f,-1.66f},{1.82f,0.12f,0.18f},dark);
+    part({0,0.72f,-1.66f},{1.92f,0.10f,0.28f},player?Color{245,245,245,255}:body);
+    part({0,0.285f,0.65f},{0.18f,0.035f,1.65f},player?Color{245,245,245,255}:body);
 }
 void drawWorld(Model cube, const Track& t, float playerAngle, const Car& player, const std::vector<Car>& rivals) {
-    ClearBackground(t.grass);
+    ClearBackground({126,184,220,255});
+    DrawPlane({0,-0.35f,0},{700,700},t.grass);
+    // A distant low-poly horizon and broad infield keep the track grounded.
+    DrawPlane({0,-0.18f,0},{180,180},t.grass);
     // Long oval circuit, segmented for a smooth curved 3D road.
     constexpr int N=220;
     for(int i=0;i<N;i++) {
@@ -54,8 +83,14 @@ void drawWorld(Model cube, const Track& t, float playerAngle, const Car& player,
         Vector3 mid={(p.x+q.x)/2,0.05f,(p.z+q.z)/2};
         float len=Vector3Distance(p,q)+0.8f;
         float yaw=std::atan2(q.x-p.x,q.z-p.z)*180/PI;
+        drawBox(cube,{mid.x,-0.02f,mid.z},{18.2f,0.30f,len+0.5f},yaw,{185,65,66,255});
         drawBox(cube,mid,{17.0f,0.35f,len},yaw,t.road);
-        drawBox(cube,{mid.x,0.245f,mid.z},{0.18f,0.025f,len*0.8f},yaw,{225,225,205,255});
+        drawBox(cube,{mid.x,0.245f,mid.z},{0.16f,0.025f,len*0.82f},yaw,{225,225,205,255});
+        if(i%4==0) {
+            Vector3 curbL=trackPoint(a,t,-7.9f), curbR=trackPoint(a,t,7.9f);
+            drawBox(cube,{curbL.x,0.28f,curbL.z},{0.8f,0.12f,len*0.65f},yaw,(i%8==0)?RAYWHITE:RED);
+            drawBox(cube,{curbR.x,0.28f,curbR.z},{0.8f,0.12f,len*0.65f},yaw,(i%8==0)?RAYWHITE:RED);
+        }
         if(i%3==0) {
             Vector3 l=trackPoint(a,t,-8.1f), r=trackPoint(a,t,8.1f);
             drawBox(cube,{l.x,0.3f,l.z},{0.35f,0.06f,1.1f},yaw,(i%6==0)?RED:RAYWHITE);
@@ -126,12 +161,15 @@ int main() {
             // Arcade vehicle dynamics: acceleration, drag, braking, grip and speed-sensitive steering.
             player.speed+=throttle*29.0f*dt;
             player.speed-=brake*(player.speed>0?48.0f:20.0f)*dt;
-            player.speed-=player.speed*(handbrake?1.15f:0.24f)*dt;
-            player.speed=Clamp(player.speed,-9.0f,48.0f);
-            player.steer=Lerp(player.steer,steering,Clamp(dt*7.5f,0,1));
-            float grip=handbrake?1.65f:0.82f;
-            player.lane+=player.steer*grip*(0.7f+std::abs(player.speed)*0.045f)*dt*7.0f;
-            player.lane=Clamp(player.lane,-7.1f,7.1f);
+            player.speed-=player.speed*(handbrake?0.92f:0.11f)*dt;
+            player.speed=Clamp(player.speed,-8.0f,58.0f);
+            player.steer=Lerp(player.steer,steering,Clamp(dt*(handbrake?4.0f:8.5f),0,1));
+            const float speed01=Clamp(std::abs(player.speed)/58.0f,0.0f,1.0f);
+            const float grip=handbrake?0.42f:1.0f;
+            // Steering changes heading as well as line; lateral grip naturally fades in a handbrake slide.
+            player.angle=wrap(player.angle + player.steer*player.speed*dt/std::sqrt(track.rx*track.rz)*0.82f*grip);
+            player.lane+=player.steer*(handbrake?9.0f:2.0f)*speed01*dt;
+            player.lane=Clamp(player.lane,-7.0f,7.0f);
             float radius=std::sqrt(track.rx*track.rz);
             float old=player.angle;
             player.angle=wrap(player.angle+player.speed/radius*dt*0.55f);
@@ -197,10 +235,12 @@ int main() {
             panel(28,25,270,104);DrawText("SPEED",48,43,15,{155,175,201,255});
             DrawText(TextFormat("%03d", (int)(std::abs(player.speed)*4.1f)),45,62,42,RAYWHITE);
             DrawText("KM/H",145,84,13,track.accent);
+            DrawRectangle(48,112,205,7,{35,43,57,255});
+            DrawRectangle(48,112,(int)(205*Clamp(std::abs(player.speed)/58.0f,0,1)),7,track.accent);
             panel(SW-280,25,250,105);DrawText(track.name,SW-258,43,18,RAYWHITE);
             DrawText(TextFormat("LAP  %d / 3",std::min(laps+1,3)),SW-258,70,22,track.accent);
             DrawText(TextFormat("TIME  %02d:%05.2f",(int)(raceTime/60),std::fmod(raceTime,60.0)),SW-258,98,16,RAYWHITE);
-            DrawText("WASD DRIVE   SPACE HANDBRAKE   ESC PAUSE",SW/2-225,SH-33,15,RAYWHITE);
+            DrawText("WASD DRIVE   SPACE DRIFT   ESC PAUSE",SW/2-205,SH-33,15,RAYWHITE);
             if(screen==Screen::Paused) {
                 DrawRectangle(0,0,SW,SH,{4,7,15,190});panel(SW/2-220,SH/2-130,440,260);
                 textCentered("RACE PAUSED",SH/2-88,36,RAYWHITE);

@@ -1,6 +1,6 @@
 # Apex Rush — C++ 3D Racing
 
-A C++17 3D arcade racing prototype built with raylib, featuring upgraded procedural sports-car models, a long-straight stadium-style circuit layout, speed-sensitive WASD steering, off-road handling, vehicle contact response, scenery collisions, and a handbrake drift mode. It features a main menu, three tracks, procedural 3D cars and scenery, arcade driving physics, AI opponents, checkpoints, lap timing, and a pause menu.
+A C++17 3D arcade racing prototype built with raylib. It includes a main menu, three layouts (two circuits and a straight drag strip), procedural sports cars and scenery, a chase camera, AI rivals, free-body driving, collisions, speed HUD, lap timing, and a pause/results screen.
 
 ## Build
 
@@ -20,11 +20,18 @@ On Windows, run `build\\Release\\apex_rush.exe` if using a multi-configuration g
 - **S** — brake, then reverse
 - **A / D** — steer left / right
 - **Space** — handbrake / drift
-- **Esc** — pause / back to menu
+- **Esc** — pause
 - **Enter** — confirm menu selection
+- **A / D** in the menu — select a track
 
-Tracks: Coastal Run, Alpine Pass, and Neon Circuit. Models and track scenery are procedurally built from 3D primitives, so no external assets are required.
+## Tracks
 
-## Notes
+- **Coastal Run** — wide circuit with greenery.
+- **Alpine Pass** — alternate circuit layout and palette.
+- **Drag Strip** — long straight acceleration course with a finish line.
 
-Driving uses an arcade model with acceleration, braking, drag, speed-sensitive steering, free lateral movement (the car can leave the road), off-road speed/grip penalties, car-to-car contact response, obstacle collisions, and handbrake grip changes. Cars are assembled procedurally from 3D primitives, with no external assets required. This is still a prototype, not a full tire/suspension simulation. Raylib is fetched automatically by CMake.
+## Driving and collisions
+
+The car moves through world-space coordinates instead of being snapped to a track lane. Steering depends on speed and direction; lateral slip creates a simple drift model. Driving off the asphalt remains possible but reduces speed and grip. Player/AI contact pushes cars apart and reduces speed; roadside obstacles also cause impacts. Cars and scenery are assembled from 3D primitives, so external art assets are not required.
+
+This is an arcade prototype rather than a full tire, suspension, or damage simulation.

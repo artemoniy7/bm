@@ -1,0 +1,222 @@
+#include "raylib.h"
+#include "raymath.h"
+#include <algorithm>
+#include <cmath>
+#include <string>
+#include <vector>
+
+namespace {
+constexpr int SW = 1280, SH = 720;
+constexpr float PI = 3.14159265358979323846f;
+enum class Screen { Menu, Racing, Paused, Results };
+struct Track { const char* name; float rx, rz; Color grass, road, accent; };
+const Track TRACKS[] = {
+    {"COASTAL RUN", 54.0f, 38.0f, {45, 112, 78, 255}, {53, 58, 68, 255}, SKYBLUE},
+    {"ALPINE PASS", 66.0f, 31.0f, {99, 119, 91, 255}, {65, 66, 70, 255}, GOLD},
+    {"NEON CIRCUIT", 47.0f, 45.0f, {26, 39, 61, 255}, {35, 39, 53, 255}, MAGENTA}
+};
+struct Car { float angle=0, lane=0, speed=0, steer=0; Color color=RED; };
+float wrap(float a) { while(a < 0) a += 2*PI; while(a >= 2*PI) a -= 2*PI; return a; }
+Vector3 trackPoint(float a, const Track& t, float lane=0) {
+    return {std::cos(a)*(t.rx+lane), 0.0f, std::sin(a)*(t.rz+lane)};
+}
+float trackYaw(float a, const Track& t) {
+    Vector3 p=trackPoint(a,t), q=trackPoint(a+0.01f,t);
+    return std::atan2(q.x-p.x, q.z-p.z)*180.0f/PI;
+}
+void textCentered(const char* s, int y, int size, Color c) {
+    DrawText(s, SW/2-MeasureText(s,size)/2, y, size, c);
+}
+void drawBox(Model cube, Vector3 pos, Vector3 scale, float yaw, Color color) {
+    DrawModelEx(cube, pos, {0,1,0}, yaw, scale, color);
+}
+void drawCar(Model cube, const Car& car, const Track& track, bool player, float bob=0) {
+    Vector3 p=trackPoint(car.angle,track,car.lane);
+    p.y=0.8f+bob;
+    float yaw=trackYaw(car.angle,track);
+    drawBox(cube,{p.x,p.y,p.z},{2.0f,0.75f,3.5f},yaw,car.color);
+    Vector3 hood={p.x+std::sin(yaw*PI/180)*0.65f,p.y+0.45f,p.z+std::cos(yaw*PI/180)*0.65f};
+    drawBox(cube,hood,{1.45f,0.45f,1.45f},yaw,player?Color{205,235,255,255}:Color{180,195,210,255});
+    // Headlights and tail lamps add readable car detail.
+    Vector3 front={p.x+std::sin(yaw*PI/180)*1.65f,p.y+0.05f,p.z+std::cos(yaw*PI/180)*1.65f};
+    drawBox(cube,{front.x-0.55f,front.y,front.z+0.05f},{0.28f,0.16f,0.12f},yaw,YELLOW);
+    drawBox(cube,{front.x+0.55f,front.y,front.z+0.05f},{0.28f,0.16f,0.12f},yaw,YELLOW);
+    Vector3 rear={p.x-std::sin(yaw*PI/180)*1.75f,p.y+0.04f,p.z-std::cos(yaw*PI/180)*1.75f};
+    drawBox(cube,rear,{1.25f,0.17f,0.13f},yaw,RED);
+}
+void drawWorld(Model cube, const Track& t, float playerAngle, const Car& player, const std::vector<Car>& rivals) {
+    ClearBackground(t.grass);
+    // Long oval circuit, segmented for a smooth curved 3D road.
+    constexpr int N=220;
+    for(int i=0;i<N;i++) {
+        float a=2*PI*i/N, b=2*PI*(i+1)/N;
+        Vector3 p=trackPoint(a,t), q=trackPoint(b,t);
+        Vector3 mid={(p.x+q.x)/2,0.05f,(p.z+q.z)/2};
+        float len=Vector3Distance(p,q)+0.8f;
+        float yaw=std::atan2(q.x-p.x,q.z-p.z)*180/PI;
+        drawBox(cube,mid,{17.0f,0.35f,len},yaw,t.road);
+        drawBox(cube,{mid.x,0.245f,mid.z},{0.18f,0.025f,len*0.8f},yaw,{225,225,205,255});
+        if(i%3==0) {
+            Vector3 l=trackPoint(a,t,-8.1f), r=trackPoint(a,t,8.1f);
+            drawBox(cube,{l.x,0.3f,l.z},{0.35f,0.06f,1.1f},yaw,(i%6==0)?RED:RAYWHITE);
+            drawBox(cube,{r.x,0.3f,r.z},{0.35f,0.06f,1.1f},yaw,(i%6==0)?RED:RAYWHITE);
+        }
+    }
+    // Start/finish stripe.
+    Vector3 s=trackPoint(0,t);
+    drawBox(cube,{s.x,0.29f,s.z},{16.0f,0.05f,1.3f},90,{235,235,235,255});
+    // Procedural scenery: trees / rocks placed outside the track.
+    for(int i=0;i<90;i++) {
+        float a=2*PI*i/90.0f;
+        float side=(i%2==0)?1.0f:-1.0f;
+        float d=13.0f+(i%5)*2.8f;
+        Vector3 p=trackPoint(a,t,side*d);
+        if(t.name==std::string("NEON CIRCUIT")) {
+            drawBox(cube,{p.x,1.5f,p.z},{1.0f,3.0f,1.0f},i*17.0f,t.accent);
+        } else {
+            drawBox(cube,{p.x,1.25f,p.z},{0.8f,2.5f,0.8f},i*23.0f,{105,73,45,255});
+            drawBox(cube,{p.x,3.0f,p.z},{3.0f,3.2f,3.0f},0,(i%3==0)?Color{42,105,55,255}:Color{37,125,63,255});
+        }
+    }
+    for(const auto& rival:rivals) drawCar(cube,rival,t,false);
+    drawCar(cube,player,t,true);
+}
+void panel(int x,int y,int w,int h,Color c={8,12,22,220}) {
+    DrawRectangle(x,y,w,h,c); DrawRectangleLines(x,y,w,h,{255,255,255,35});
+}
+}
+
+int main() {
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
+    InitWindow(SW,SH,"APEX RUSH | C++ 3D Racing");
+    SetTargetFPS(60);
+    Model cube=LoadModelFromMesh(GenMeshCube(1,1,1));
+    Screen screen=Screen::Menu;
+    int selectedTrack=0, menuSelection=0, laps=0, countdown=0;
+    float raceTime=0, bestTime=0, lapStart=0, previousAngle=0;
+    bool wasPaused=false;
+    Car player; player.color={230,54,64,255};
+    std::vector<Car> rivals(4);
+    Color rivalColors[]={SKYBLUE, GOLD, LIME, VIOLET};
+    for(int i=0;i<(int)rivals.size();++i){rivals[i].angle=0.4f+i*0.7f;rivals[i].lane=(i%2?3.0f:-3.0f);rivals[i].color=rivalColors[i];rivals[i].speed=0;}
+    Camera3D camera={0};
+    camera.up={0,1,0}; camera.fovy=55; camera.projection=CAMERA_PERSPECTIVE;
+    while(!WindowShouldClose()) {
+        float dt=std::min(GetFrameTime(),0.04f);
+        const Track& track=TRACKS[selectedTrack];
+        if(screen==Screen::Menu) {
+            if(IsKeyPressed(KEY_UP)||IsKeyPressed(KEY_W)) menuSelection=(menuSelection+2)%3;
+            if(IsKeyPressed(KEY_DOWN)||IsKeyPressed(KEY_S)) menuSelection=(menuSelection+1)%3;
+            if(IsKeyPressed(KEY_LEFT)||IsKeyPressed(KEY_A)) selectedTrack=(selectedTrack+2)%3;
+            if(IsKeyPressed(KEY_RIGHT)||IsKeyPressed(KEY_D)) selectedTrack=(selectedTrack+1)%3;
+            if(IsKeyPressed(KEY_ENTER)||IsKeyPressed(KEY_SPACE)) {
+                if(menuSelection==0) {
+                    player=Car{};player.color={230,54,64,255};laps=0;raceTime=0;lapStart=0;previousAngle=0;
+                    for(int i=0;i<(int)rivals.size();++i){rivals[i].angle=wrap(0.4f+i*0.7f);rivals[i].lane=(i%2?3.0f:-3.0f);rivals[i].speed=0;}
+                    screen=Screen::Racing;
+                } else if(menuSelection==1) selectedTrack=(selectedTrack+1)%3;
+                else break;
+            }
+        } else if(screen==Screen::Racing) {
+            if(IsKeyPressed(KEY_ESCAPE)) screen=Screen::Paused;
+            float throttle=(IsKeyDown(KEY_W)||IsKeyDown(KEY_UP))?1.0f:0.0f;
+            float brake=(IsKeyDown(KEY_S)||IsKeyDown(KEY_DOWN))?1.0f:0.0f;
+            float steering=(IsKeyDown(KEY_A)||IsKeyDown(KEY_LEFT))?-1.0f:((IsKeyDown(KEY_D)||IsKeyDown(KEY_RIGHT))?1.0f:0.0f);
+            bool handbrake=IsKeyDown(KEY_SPACE);
+            // Arcade vehicle dynamics: acceleration, drag, braking, grip and speed-sensitive steering.
+            player.speed+=throttle*29.0f*dt;
+            player.speed-=brake*(player.speed>0?48.0f:20.0f)*dt;
+            player.speed-=player.speed*(handbrake?1.15f:0.24f)*dt;
+            player.speed=Clamp(player.speed,-9.0f,48.0f);
+            player.steer=Lerp(player.steer,steering,Clamp(dt*7.5f,0,1));
+            float grip=handbrake?1.65f:0.82f;
+            player.lane+=player.steer*grip*(0.7f+std::abs(player.speed)*0.045f)*dt*7.0f;
+            player.lane=Clamp(player.lane,-7.1f,7.1f);
+            float radius=std::sqrt(track.rx*track.rz);
+            float old=player.angle;
+            player.angle=wrap(player.angle+player.speed/radius*dt*0.55f);
+            if(old>5.4f&&player.angle<0.8f&&player.speed>3.0f){laps++;if(laps>0){float lap=raceTime-lapStart;if(lapStart>0&&(bestTime==0||lap<bestTime))bestTime=lap;lapStart=raceTime;}if(laps>=3)screen=Screen::Results;}
+            raceTime+=dt;
+            for(auto& ai:rivals) {
+                float target=25.0f+(std::sin(ai.angle*3.0f)*3.0f);
+                ai.speed=Lerp(ai.speed,target,dt*0.65f);
+                ai.angle=wrap(ai.angle+ai.speed/radius*dt*0.55f);
+            }
+            // Soft collision response when cars occupy nearby track positions.
+            for(auto& ai:rivals) {
+                float da=std::abs(std::remainder(player.angle-ai.angle,2*PI));
+                if(da<0.045f&&std::abs(player.lane-ai.lane)<2.6f) player.speed=std::max(0.0f,player.speed-18.0f*dt);
+            }
+        } else if(screen==Screen::Paused) {
+            if(IsKeyPressed(KEY_ESCAPE)||IsKeyPressed(KEY_ENTER)) screen=Screen::Racing;
+            if(IsKeyPressed(KEY_M)) screen=Screen::Menu;
+        } else if(screen==Screen::Results) {
+            if(IsKeyPressed(KEY_ENTER)||IsKeyPressed(KEY_ESCAPE)) screen=Screen::Menu;
+        }
+        // Follow camera looks toward the next section of track.
+        Vector3 carPos=trackPoint(player.angle,track,player.lane);
+        Vector3 ahead=trackPoint(player.angle+0.16f,track);
+        float yaw=trackYaw(player.angle,track)*PI/180.0f;
+        camera.target={carPos.x,1.0f,carPos.z};
+        camera.position={carPos.x-std::sin(yaw)*13.5f,7.2f,carPos.z-std::cos(yaw)*13.5f};
+        camera.target=Vector3Lerp(camera.target,{ahead.x,0.5f,ahead.z},0.24f);
+        BeginDrawing();
+        if(screen==Screen::Menu) {
+            ClearBackground({9,15,27,255});
+            // Animated 3D showroom backdrop.
+            Camera3D showroom={{0,12,105},{0,0,0},{0,1,0},42,CAMERA_PERSPECTIVE};
+            BeginMode3D(showroom);
+            DrawPlane({0,-2,0},{220,220},{19,29,45,255});
+            for(int i=-8;i<=8;i++) DrawCube({(float)i*9,-1.8f,0},0.08f,0.08f,180,{35,55,78,255});
+            Car display;display.angle=(float)GetTime()*0.35f;display.color={235,49,65,255};
+            drawBox(cube,{0,0,0},{4.0f,1.3f,7.0f},(float)GetTime()*10.0f,display.color);
+            drawBox(cube,{0,0.8f,-0.3f},{2.7f,0.8f,3.0f},(float)GetTime()*10.0f,{175,220,245,255});
+            EndMode3D();
+            DrawRectangleGradientV(0,0,SW,SH,{4,8,17,105},{4,8,17,245});
+            DrawText("APEX",78,62,90,RAYWHITE); DrawText("RUSH",78,145,90,{236,55,70,255});
+            DrawText("3D ARCADE RACING",84,249,20,{140,178,205,255});
+            DrawRectangle(84,290,64,4,track.accent);
+            const char* opts[]={"START RACE","SELECT TRACK","QUIT"};
+            for(int i=0;i<3;i++) {
+                int y=340+i*57;
+                if(i==menuSelection) {DrawRectangle(76,y-7,340,45,{235,55,70,220});DrawText(">",94,y+2,25,RAYWHITE);}
+                DrawText(opts[i],132,y+2,23,(i==menuSelection)?RAYWHITE:Color{165,181,202,255});
+            }
+            panel(790,430,400,175,{8,14,25,225});
+            DrawText("CURRENT CIRCUIT",818,452,16,{135,159,185,255});
+            DrawText(track.name,818,480,27,RAYWHITE);
+            DrawText("A / D  CHANGE TRACK",818,523,16,track.accent);
+            DrawText("WASD / ARROWS  NAVIGATE",818,552,15,{150,169,193,255});
+            DrawText("ENTER  CONFIRM",818,576,15,{150,169,193,255});
+            DrawText("A R C A D E   R A C I N G",84,660,14,{89,112,140,255});
+        } else {
+            BeginMode3D(camera);
+            drawWorld(cube,track,player.angle,player,rivals);
+            EndMode3D();
+            // Speedometer and race HUD.
+            panel(28,25,270,104);DrawText("SPEED",48,43,15,{155,175,201,255});
+            DrawText(TextFormat("%03d", (int)(std::abs(player.speed)*4.1f)),45,62,42,RAYWHITE);
+            DrawText("KM/H",145,84,13,track.accent);
+            panel(SW-280,25,250,105);DrawText(track.name,SW-258,43,18,RAYWHITE);
+            DrawText(TextFormat("LAP  %d / 3",std::min(laps+1,3)),SW-258,70,22,track.accent);
+            DrawText(TextFormat("TIME  %02d:%05.2f",(int)(raceTime/60),std::fmod(raceTime,60.0)),SW-258,98,16,RAYWHITE);
+            DrawText("WASD DRIVE   SPACE HANDBRAKE   ESC PAUSE",SW/2-225,SH-33,15,RAYWHITE);
+            if(screen==Screen::Paused) {
+                DrawRectangle(0,0,SW,SH,{4,7,15,190});panel(SW/2-220,SH/2-130,440,260);
+                textCentered("RACE PAUSED",SH/2-88,36,RAYWHITE);
+                textCentered("ENTER / ESC  RESUME",SH/2-20,19,track.accent);
+                textCentered("M  MAIN MENU",SH/2+22,19,{180,195,215,255});
+            } else if(screen==Screen::Results) {
+                DrawRectangle(0,0,SW,SH,{4,7,15,200});panel(SW/2-260,SH/2-150,520,300);
+                textCentered("FINISH!",SH/2-110,48,{245,205,83,255});
+                textCentered("YOU COMPLETED 3 LAPS",SH/2-43,22,RAYWHITE);
+                textCentered(TextFormat("TOTAL TIME  %02d:%05.2f",(int)(raceTime/60),std::fmod(raceTime,60.0)),SH/2+2,21,track.accent);
+                textCentered("PRESS ENTER TO CONTINUE",SH/2+82,17,{170,190,215,255});
+            }
+        }
+        EndDrawing();
+    }
+    UnloadModel(cube);
+    CloseWindow();
+    return 0;
+}
